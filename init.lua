@@ -84,6 +84,49 @@ I hope you enjoy your Neovim journey,
 P.S. You can delete this when you're done too. It's your config now! :)
 --]]
 
+---@param bufnr number
+local open_file_buf_relative_path = function(bufnr)
+  local bufname = vim.fn.bufname(bufnr)
+  -- if bufname starts with c: or ~ then its a full path and want to open relative
+  if bufname:sub(1, 2):lower() == 'c:' or bufname:sub(1, 1) == '~' then
+    local cwd = vim.uv.cwd() or '.'
+    local root = vim.fs.normalize(vim.uv.fs_realpath(cwd) or '.') .. '/'
+    local norm_path = vim.fs.normalize(vim.uv.fs_realpath(bufname) or bufname)
+    if norm_path:find(root, 1, true) ~= 1 then
+      -- NOTE: not changing if not part of root path (cwd)
+      root = ''
+    end
+    if root == '' or root == nil then
+      return
+    end
+    local relative_path = norm_path:sub(#root + 1)
+    vim.schedule(function()
+      vim.notify('Setting buffer name to relative path: ' .. relative_path .. ' FROM: ' .. bufname .. ' - for bufnr: ' .. bufnr)
+      if vim.bo[bufnr].modified then
+        vim.notify('Buffer is modified, saving before setting relative path: ' .. bufname)
+        vim.api.nvim_set_current_buf(bufnr)
+        vim.cmd 'w'
+        vim.api.nvim_buf_set_name(bufnr, relative_path)
+        vim.cmd 'e'
+      else
+        vim.api.nvim_set_current_buf(bufnr)
+        vim.api.nvim_buf_set_name(bufnr, relative_path)
+        vim.cmd 'e'
+      end
+    end)
+  end
+end
+
+vim.api.nvim_create_autocmd({
+  'BufWinEnter',
+  'BufWritePost',
+}, {
+  pattern = '*',
+  callback = function(event)
+    open_file_buf_relative_path(event.buf)
+  end,
+})
+
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
@@ -91,7 +134,8 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.opt.guifont = '0xProto Nerd Font'
+vim.g.have_nerd_font = true
 
 -- [[ Setting options ]]
 -- See `:help vim.opt`
@@ -197,6 +241,14 @@ vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper win
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
 
+vim.keymap.set('n', '<leader>p', function()
+  vim.cmd [[Telescope projects]]
+end, { desc = 'Open [P]rojects' })
+
+vim.cmd "set relativenumber"
+vim.cmd "set shiftwidth=4"
+vim.cmd "set tabstop=4"
+
 -- Highlight when yanking (copying) text
 --  Try it with `yap` in normal mode
 --  See `:help vim.highlight.on_yank()`
@@ -219,6 +271,8 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
   end
 end ---@diagnostic disable-next-line: undefined-field
 vim.opt.rtp:prepend(lazypath)
+
+vim.cmd 'let g:netrw_liststyle = 3'
 
 -- [[ Configure and install plugins ]]
 --
@@ -414,6 +468,7 @@ require('lazy').setup({
       -- Enable Telescope extensions if they are installed
       pcall(require('telescope').load_extension, 'fzf')
       pcall(require('telescope').load_extension, 'ui-select')
+      pcall(require('telescope').load_extension, 'project_nvim')
 
       -- See `:help telescope.builtin`
       local builtin = require 'telescope.builtin'
@@ -450,6 +505,13 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>sn', function()
         builtin.find_files { cwd = vim.fn.stdpath 'config' }
       end, { desc = '[S]earch [N]eovim files' })
+    end,
+  },
+
+  {
+    'ahmedkhalf/project.nvim',
+    config = function()
+      require('project_nvim').setup {}
     end,
   },
 
@@ -666,7 +728,9 @@ require('lazy').setup({
         -- clangd = {},
         -- gopls = {},
         -- pyright = {},
-        -- rust_analyzer = {},
+        rust_analyzer = {
+
+        },
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -675,7 +739,6 @@ require('lazy').setup({
         -- But for many setups, the LSP (`ts_ls`) will work just fine
         -- ts_ls = {},
         --
-
         lua_ls = {
           -- cmd = { ... },
           -- filetypes = { ... },
@@ -686,7 +749,18 @@ require('lazy').setup({
                 callSnippet = 'Replace',
               },
               -- You can toggle below to ignore Lua_LS's noisy `missing-fields` warnings
-              -- diagnostics = { disable = { 'missing-fields' } },
+              diagnostics = {
+                disable = {
+                  'undefined-global',
+                  'missing-fields',
+                  'lowercase-global',
+                  'trailing-space',
+                  'unused-label',
+                  'unused-functionl',
+                  'unused-local',
+                  'unused-vararg',
+                },
+              },
             },
           },
         },
@@ -706,9 +780,9 @@ require('lazy').setup({
       -- You can add other tools here that you want Mason to install
       -- for you, so that they are available from within Neovim.
       local ensure_installed = vim.tbl_keys(servers or {})
-      vim.list_extend(ensure_installed, {
-        'stylua', -- Used to format Lua code
-      })
+      -- vim.list_extend(ensure_installed, {
+      --   'stylua', -- Used to format Lua code
+      -- })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
       require('mason-lspconfig').setup {
@@ -728,49 +802,49 @@ require('lazy').setup({
     end,
   },
 
-  { -- Autoformat
-    'stevearc/conform.nvim',
-    event = { 'BufWritePre' },
-    cmd = { 'ConformInfo' },
-    keys = {
-      {
-        '<leader>f',
-        function()
-          require('conform').format { async = true, lsp_format = 'fallback' }
-        end,
-        mode = '',
-        desc = '[F]ormat buffer',
-      },
-    },
-    opts = {
-      notify_on_error = false,
-      format_on_save = function(bufnr)
-        -- Disable "format_on_save lsp_fallback" for languages that don't
-        -- have a well standardized coding style. You can add additional
-        -- languages here or re-enable it for the disabled ones.
-        local disable_filetypes = { c = true, cpp = true }
-        local lsp_format_opt
-        if disable_filetypes[vim.bo[bufnr].filetype] then
-          lsp_format_opt = 'never'
-        else
-          lsp_format_opt = 'fallback'
-        end
-        return {
-          timeout_ms = 500,
-          lsp_format = lsp_format_opt,
-        }
-      end,
-      formatters_by_ft = {
-        lua = { 'stylua' },
-        -- Conform can also run multiple formatters sequentially
-        -- python = { "isort", "black" },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
-      },
-    },
-  },
-
+  -- { -- Autoformat
+  --   'stevearc/conform.nvim',
+  --   event = { 'BufWritePre' },
+  --   cmd = { 'ConformInfo' },
+  --   keys = {
+  --     {
+  --       '<leader>f',
+  --       function()
+  --         require('conform').format { async = true, lsp_format = 'fallback' }
+  --       end,
+  --       mode = '',
+  --       desc = '[F]ormat buffer',
+  --     },
+  --   },
+  --   opts = {
+  --     notify_on_error = false,
+  --     format_on_save = function(bufnr)
+  --       -- Disable "format_on_save lsp_fallback" for languages that don't
+  --       -- have a well standardized coding style. You can add additional
+  --       -- languages here or re-enable it for the disabled ones.
+  --       local disable_filetypes = { c = true, cpp = true }
+  --       local lsp_format_opt
+  --       if disable_filetypes[vim.bo[bufnr].filetype] then
+  --         lsp_format_opt = 'never'
+  --       else
+  --         lsp_format_opt = 'fallback'
+  --       end
+  --       return {
+  --         timeout_ms = 500,
+  --         lsp_format = lsp_format_opt,
+  --       }
+  --     end,
+  --     formatters_by_ft = {
+  --       lua = { 'stylua' },
+  --       -- Conform can also run multiple formatters sequentially
+  --       -- python = { "isort", "black" },
+  --       --
+  --       -- You can use 'stop_after_first' to run the first available formatter from the list
+  --       -- javascript = { "prettierd", "prettier", stop_after_first = true },
+  --     },
+  --   },
+  -- },
+  --
   { -- Autocompletion
     'hrsh7th/nvim-cmp',
     event = 'InsertEnter',
@@ -889,6 +963,106 @@ require('lazy').setup({
     end,
   },
 
+  {
+    'nvim-tree/nvim-tree.lua',
+    dependencies = 'nvim-tree/nvim-web-devicons',
+    config = function()
+      local nvimtree = require 'nvim-tree'
+
+      vim.g.loaded_netrw = 1
+      vim.g.loaded_netrwPlugin = 1
+
+      nvimtree.setup {
+        view = {
+          width = 35,
+          relativenumber = true,
+        },
+        renderer = {
+          indent_markers = {
+            enable = true,
+          },
+        },
+        actions = {
+          open_file = {
+            window_picker = {
+              enable = false,
+            },
+          },
+        },
+        filters = {
+          custom = { '.DS_Store' },
+        },
+        git = {
+          ignore = false,
+        },
+      }
+      local keymap = vim.keymap
+      keymap.set('n', '<leader>ee', '<cmd>NvimTreeToggle<CR>', { desc = 'Toggle File Explorer' })
+      keymap.set('n', '<leader>ef', '<cmd>NvimTreeFindFileToggle<CR>', { desc = 'Toggle File Explorer on current file' })
+      keymap.set('n', '<leader>ec', '<cmd>NvimTreeCollapse<CR>', { desc = 'Collapse File Explorer' })
+      keymap.set('n', '<leader>er', '<cmd>NvimTreeRefresh<CR>', { desc = 'Refresh File Explorer' })
+    end,
+  },
+
+  {
+    'windwp/nvim-autopairs',
+    event = { 'InsertEnter' },
+    dependencies = {
+      'hrsh7th/nvim-cmp',
+    },
+    config = function()
+      local autopairs = require 'nvim-autopairs'
+
+      autopairs.setup {
+        check_ts = true,
+        ts_config = {
+          lua = { 'string' },
+        },
+      }
+
+      local cmp_autopairs = require 'nvim-autopairs.completion.cmp'
+      local cmp = require 'cmp'
+
+      cmp.event:on('confirm_done', cmp_autopairs.on_confirm_done())
+    end,
+  },
+
+  {
+    'glepnir/nerdicons.nvim',
+    cmd = 'NerdIcons',
+    opts = {},
+    config = function()
+      require('nerdicons').setup {
+        border = 'single',
+        prompt = '󰨭 ',
+        preview_prompt = ' ',
+        width = 0.5,
+        down = '<C-n>',
+        up = '<C-p>',
+        copy = '<C-y>',
+      }
+    end,
+  },
+
+  {
+    'samharju/synthweave.nvim',
+    lazy = false, -- make sure we load this during startup if it is your main colorscheme
+    priority = 1000,
+    config = function()
+      -- vim.cmd.colorscheme("synthweave")
+      -- transparent version
+      -- vim.cmd.colorscheme 'synthweave-transparent'
+    end,
+  },
+  {
+    'Vallen217/eidolon.nvim',
+    lazy = false,
+    priority = 1000,
+    config = function()
+      vim.cmd [[colorscheme eidolon]]
+    end,
+  },
+
   { -- You can easily change to a different colorscheme.
     -- Change the name of the colorscheme plugin below, and then
     -- change the command in the config to whatever the name of that colorscheme is.
@@ -907,7 +1081,10 @@ require('lazy').setup({
       -- Load the colorscheme here.
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      -- vim.cmd.colorscheme 'tokyonight-night'
+
+      -- You can configure highlights by doing something like:
+      vim.cmd.hi 'Comment gui=none'
     end,
   },
 
