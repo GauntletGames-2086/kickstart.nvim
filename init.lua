@@ -244,6 +244,7 @@ vim.keymap.set('n', '<C-r>c', function() vim.cmd [[!cargo check]] end, { desc = 
 vim.keymap.set('n', '<C-r>b', function() vim.cmd [[!cargo build]] end, { desc = "Default Build  `!cargo build`"})
 vim.keymap.set('n', '<C-r>r', function() vim.cmd [[!cargo run]] end, { desc = "Default Run `!cargo run`"})
 vim.keymap.set('n', '<C-r>d', function() vim.cmd [[!cargo doc --open]] end, { desc = "Default Doc compile `!cargo doc --open`" })
+vim.keymap.set('n', '<C-r>t', function() vim.cmd [[!cargo test]] end, { desc = "Default Test `!cargo test`" })
 
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
